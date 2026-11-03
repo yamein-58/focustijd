@@ -82,6 +82,16 @@
     .divider{height:1px;background:var(--line);margin:20px 0}
     .toast{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 25px);left:50%;transform:translateX(-50%);background:#253b3e;color:#fff;padding:10px 17px;border-radius:20px;white-space:nowrap;font-size:13px;box-shadow:0 10px 30px #213e3e3d;z-index:10;opacity:0;pointer-events:none;transition:opacity .2s}
     .toast.show{opacity:1}
+
+    /* Korte felicitatievideo; fullscreen op kleine iPhone-schermen zonder weg te navigeren. */
+    .reward-dialog{width:min(470px,calc(100vw - 20px));max-height:calc(100dvh - 24px);padding:0;border:0;border-radius:23px;overflow:hidden;background:#fff;box-shadow:0 24px 80px rgba(11,51,43,.29)}
+    .reward-header{padding:15px 17px;display:flex;align-items:center;justify-content:space-between;font-size:18px;font-weight:850}
+    .reward-content{padding:0 12px 16px;text-align:center}
+    .reward-video{display:block;width:100%;max-height:62dvh;object-fit:contain;border-radius:13px;background:#152326}
+    .reward-explainer{font-size:13px;color:var(--muted);margin:10px 0 0}
+    .reward-retry{margin:11px 0 0}
+    .reward-replay{display:flex;justify-content:center;margin:12px 0 0}
+    .media-status{font-size:12px;color:var(--muted);line-height:1.45;padding:4px 0 10px}
     @media(max-height:680px){.topbar{margin-bottom:12px}.countdown-card{margin-top:10px;padding:12px 14px}.clock{font-size:49px}.task-card{min-height:205px;margin-top:10px;padding:13px 16px}.task-emoji{font-size:54px;margin:6px 0}.progress{margin:11px 2px 14px}.big-button{min-height:60px}.shell{padding-top:calc(env(safe-area-inset-top) + 10px)}}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
   </style>
@@ -99,11 +109,16 @@
   </div>
   <dialog id="packDialog" aria-label="Kies takenpakket"></dialog>
   <dialog id="settingsDialog" aria-label="Ouderinstellingen"></dialog>
+  <dialog id="rewardDialog" class="reward-dialog" aria-label="Beloning na alle taken"></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 (() => {
   'use strict';
-  const KEY = 'focustijd-state-v1';
+  const KEY = 'focustijd-state-v1'; // Bestaande taken en instellingen blijven behouden.
+  const MEDIA_CACHE_KEY = 'focustijd-media-library-v2';
+  // Alleen nodig als je een eigen domeinnaam gebruikt. Bij username.github.io/focustijd/ wordt dit automatisch herkend.
+  const GITHUB_REPOSITORY = ''; // Optioneel: 'gebruikersnaam/focustijd'
+  const MEDIA_FOLDERS = ['task_succeeded', 'mission_succeeded'];
   const $ = (s, root=document) => root.querySelector(s);
   const html = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const id = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -137,11 +152,28 @@
   let wakeLock = null;
   let wakePending = false;
   let audioContext = null;
+  let playingMedia = null;
+  let missionVideoActive = false;
+  let mediaRefresh = null;
+  let lastMediaRefresh = 0;
+  let mediaStatus = 'Geluiden worden gezocht…';
+  let mediaLibrary = {task_succeeded:[], mission_succeeded:[]};
+  try {
+    const previous = JSON.parse(localStorage.getItem(MEDIA_CACHE_KEY));
+    if (previous && typeof previous === 'object') {
+      for (const folder of MEDIA_FOLDERS) {
+        const entries = previous[folder];
+        if (Array.isArray(entries)) mediaLibrary[folder] = entries.filter(url =>
+          typeof url === 'string' && url.startsWith(`./sounds/${folder}/`) && /\.(mp3|mp4)$/i.test(url));
+      }
+    }
+  } catch (_) { /* Geen opgeslagen geluidslijst */ }
   let lastNextTap = 0;
   let toastTimeout = null;
   const main = $('#main');
   const packDialog = $('#packDialog');
   const settingsDialog = $('#settingsDialog');
+  const rewardDialog = $('#rewardDialog');
 
   function save() { try {localStorage.setItem(KEY, JSON.stringify(state));} catch (_) {showToast('Opslaan is niet gelukt');} }
   function getPack(packId=state.activePackId) {return state.packs.find(p => p.id === packId) || state.packs[0];}
@@ -194,18 +226,148 @@
   }
   async function ensureWake() {
     const session = getSession();
-    if (!state.prefs.wake || session.completed || document.visibilityState !== 'visible') {await releaseWake();return;}
+    if (!state.prefs.wake || (session.completed && !missionVideoActive) || document.visibilityState !== 'visible') {await releaseWake();return;}
     if (!('wakeLock' in navigator) || wakePending || (wakeLock && !wakeLock.released)) {renderWake();return;}
     wakePending = true;
     try {
       const lock = await navigator.wakeLock.request('screen');
       // Wisseling van pakket/instelling tijdens wachten: niet blijven vasthouden.
-      if (!state.prefs.wake || getSession().completed || document.visibilityState !== 'visible') {await lock.release();return;}
+      if (!state.prefs.wake || (getSession().completed && !missionVideoActive) || document.visibilityState !== 'visible') {await lock.release();return;}
       wakeLock = lock;
       lock.addEventListener('release', () => {if (wakeLock === lock) wakeLock = null;renderWake();});
     } catch (_) { /* Spaarstand of browser kan dit weigeren */ }
     finally {wakePending = false;renderWake();}
   }
+  // GitHub Pages serveert bestanden, maar biedt geen lijst van de inhoud van een map.
+  // Daarom lezen we de (openbare) repository via de GitHub Contents API.
+  function githubRepository() {
+    const configured = GITHUB_REPOSITORY.trim().match(/^([^/]+)\/([^/]+)$/);
+    if (configured) return {owner: configured[1], repo: configured[2]};
+    const match = location.hostname.toLowerCase().match(/^([a-z0-9-]+)\.github\.io$/);
+    if (!match) return null;
+    const firstSegment = location.pathname.split('/').filter(Boolean)[0];
+    const repo = firstSegment && !firstSegment.toLowerCase().endsWith('.html')
+      ? decodeURIComponent(firstSegment) : `${match[1]}.github.io`;
+    return {owner: match[1], repo};
+  }
+  function soundUrl(folder, name) {
+    if (typeof name !== 'string' || name.startsWith('.') || name.includes('/') || name.includes('\\') || !/\.(mp3|mp4)$/i.test(name)) return null;
+    return `./sounds/${folder}/${encodeURIComponent(name)}`;
+  }
+  async function folderFromGithub(repository, folder) {
+    const url = `https://api.github.com/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/contents/sounds/${folder}`;
+    const response = await fetch(url, {headers:{Accept:'application/vnd.github+json'}, cache:'no-store'});
+    if (response.status === 404) return [];
+    if (!response.ok) throw new Error(`GitHub API: ${response.status}`);
+    const items = await response.json();
+    return Array.isArray(items) ? items.filter(entry => entry.type === 'file').map(entry => soundUrl(folder, entry.name)).filter(Boolean) : [];
+  }
+  // Optioneel manifest als de app niet op GitHub Pages staat of zonder GitHub API moet werken.
+  async function folderFromManifest() {
+    const response = await fetch('./sounds/media.json', {cache:'no-store'});
+    if (!response.ok) throw new Error('Geen media.json gevonden');
+    const data = await response.json();
+    const library = {};
+    for (const folder of MEDIA_FOLDERS) {
+      library[folder] = Array.isArray(data[folder]) ? data[folder].map(name => soundUrl(folder, name)).filter(Boolean) : [];
+    }
+    return library;
+  }
+  function updateMediaStatus() {
+    const label = $('#mediaStatus', settingsDialog);
+    if (label) label.textContent = `${mediaStatus} · ${mediaLibrary.task_succeeded.length} taakgeluiden en ${mediaLibrary.mission_succeeded.length} eindbeloningen`;
+  }
+  async function refreshMedia(force=false) {
+    if (mediaRefresh) return mediaRefresh;
+    if (!force && Date.now() - lastMediaRefresh < 5*60*1000) return;
+    lastMediaRefresh = Date.now();
+    mediaStatus = 'Geluiden worden gezocht…';
+    updateMediaStatus();
+    mediaRefresh = (async () => {
+      try {
+        const repo = githubRepository();
+        let list;
+        if (repo) {
+          const [tasks, missions] = await Promise.all(MEDIA_FOLDERS.map(folder => folderFromGithub(repo, folder)));
+          list = {task_succeeded:tasks, mission_succeeded:missions};
+        } else {
+          list = await folderFromManifest();
+        }
+        mediaLibrary = list;
+        try {localStorage.setItem(MEDIA_CACHE_KEY, JSON.stringify(list));} catch (_) {}
+        mediaStatus = 'Geluidslijst bijgewerkt';
+      } catch (_) {
+        // Een eerdere lijst blijft bruikbaar bij tijdelijke internetstoring.
+        try {
+          const manifest = await folderFromManifest();
+          if (manifest.task_succeeded.length || manifest.mission_succeeded.length) {
+            mediaLibrary = manifest;
+            mediaStatus = 'Geluidslijst uit media.json';
+          } else mediaStatus = 'Geen online lijst beschikbaar';
+        } catch (_) { mediaStatus = 'Offline of GitHub-lijst niet bereikbaar'; }
+      } finally {
+        mediaRefresh = null;
+        updateMediaStatus();
+      }
+    })();
+    return mediaRefresh;
+  }
+  function stopMedia() {
+    const old = playingMedia;
+    playingMedia = null;
+    if (old) {try {old.pause();old.removeAttribute('src');old.load();} catch (_) {}}
+    if (rewardDialog.open) rewardDialog.close();
+    rewardDialog.replaceChildren();
+    missionVideoActive = false;
+  }
+  function closeReward() {
+    stopMedia();
+    if (getSession().completed) releaseWake();
+  }
+  function showRewardVideo(url) {
+    missionVideoActive = true;
+    rewardDialog.innerHTML = `<div class="reward-header"><span>🎉 Alle taken klaar!</span><button id="closeReward" class="close-button" type="button" aria-label="Filmpje sluiten">×</button></div><div class="reward-content"><video id="rewardVideo" class="reward-video" playsinline webkit-playsinline controls preload="auto"></video><p class="reward-explainer">Geniet van je beloning!</p><button id="retryReward" type="button" class="outline-button reward-retry" hidden>▶ Filmpje afspelen</button></div>`;
+    const video = $('#rewardVideo', rewardDialog);
+    video.src = url;
+    video.playsInline = true;
+    playingMedia = video;
+    $('#closeReward', rewardDialog).addEventListener('click', closeReward);
+    const retry = $('#retryReward', rewardDialog);
+    retry.addEventListener('click', () => {video.play().then(() => {retry.hidden=true;}).catch(() => showToast('Dit filmpje kan niet worden gestart'));});
+    video.addEventListener('ended', closeReward);
+    video.addEventListener('error', () => {if (playingMedia === video) {retry.hidden=false;showToast('Filmpje niet beschikbaar');}});
+    rewardDialog.showModal();
+    try {
+      // Direct tijdens de tik op 'Klaar!' aanroepen: iPhone staat geluid met gebruikersactie toe.
+      const started = video.play();
+      if (started && started.catch) started.catch(() => {if (playingMedia === video) retry.hidden=false;});
+    } catch (_) {retry.hidden=false;}
+    ensureWake();
+  }
+  function playSoundFile(url, final) {
+    const audio = new Audio(url);
+    audio.preload = 'auto';
+    playingMedia = audio;
+    audio.addEventListener('ended', () => {if (playingMedia === audio) playingMedia=null;});
+    audio.addEventListener('error', () => {if (playingMedia === audio) {playingMedia=null;chime(final);showToast('Geluid niet beschikbaar');}});
+    try {
+      const started = audio.play();
+      if (started && started.catch) started.catch(() => {
+        if (playingMedia === audio) {playingMedia=null;chime(final); if (final) showToast('Tik op Beloning afspelen');}
+      });
+    } catch (_) {playingMedia=null;chime(final);}
+  }
+  function playSuccess(final=false) {
+    stopMedia();
+    if (!state.prefs.sound) return;
+    const folder = final ? 'mission_succeeded' : 'task_succeeded';
+    const choices = mediaLibrary[folder];
+    if (!choices.length) {chime(final);return;}
+    const file = choices[Math.floor(Math.random()*choices.length)];
+    if (final && /\.mp4$/i.test(file)) showRewardVideo(file);
+    else playSoundFile(file, final);
+  }
+  rewardDialog.addEventListener('cancel', event => {event.preventDefault();closeReward();});
   function chime(final=false) {
     if (!state.prefs.sound) return;
     try {
@@ -232,10 +394,10 @@
     const el = $('#toast'); el.textContent = message;el.classList.add('show');
     clearTimeout(toastTimeout);toastTimeout = setTimeout(() => el.classList.remove('show'),2100);
   }
-  function resetPack() {state.sessions[getPack().id] = newSession(getPack()); save(); render();}
+  function resetPack() {stopMedia();state.sessions[getPack().id] = newSession(getPack()); save(); render();}
   function switchTo(packId) {
     if (!state.packs.some(p => p.id === packId)) return;
-    state.activePackId = packId;getSession();save();packDialog.close();render();
+    stopMedia();state.activePackId = packId;getSession();save();packDialog.close();render();
   }
   function render() {
     const pack=getPack(), session=getSession(pack), total=pack.tasks.length;
@@ -247,10 +409,11 @@
     }
     if (session.completed) {
       main.innerHTML = `<button class="package-button" id="switchPack">${html(pack.emoji)} ${html(pack.name)} <span class="arrow">⌄</span></button>
-      <div class="done-card" aria-live="polite"><div class="done-emoji">🎉</div><div class="done-title">Alles klaar!</div><p class="done-text">Wat goed! Je hebt alle ${total} taken gedaan.</p><button class="big-button" id="resetPack">↻ &nbsp; Nog een keer</button></div>`;
+      <div class="done-card" aria-live="polite"><div class="done-emoji">🎉</div><div class="done-title">Alles klaar!</div><p class="done-text">Wat goed! Je hebt alle ${total} taken gedaan.</p><button class="big-button" id="resetPack">↻ &nbsp; Nog een keer</button><div class="reward-replay"><button class="outline-button" id="replayReward" type="button">▶ Beloning nog een keer</button></div></div>`;
       $('#resetPack').addEventListener('click', () => {if (confirm('Wil je opnieuw beginnen met dit takenpakket?')) resetPack();});
+      $('#replayReward').addEventListener('click', () => playSuccess(true));
       $('#switchPack').addEventListener('click',openPacks);
-      releaseWake();return;
+      if (!missionVideoActive) releaseWake();return;
     }
     const current=pack.tasks[session.index] || pack.tasks[0];
     const done=Math.min(session.index,total);
@@ -271,8 +434,11 @@
     $('#nextTask').addEventListener('click',() => {
       const now=Date.now();if (now-lastNextTap<400) return;lastNextTap=now;
       session.index++;
-      if (session.index>=total) {session.completed=true;chime(true);} else chime();
-      save();render();
+      const final = session.index >= total;
+      if (final) session.completed = true;
+      save();
+      playSuccess(final); // Tijdens deze knopdruk starten; belangrijk voor iOS-geluidsregels.
+      render();
     });
     $('#previousTask').addEventListener('click',() => {if (session.index>0) {session.index--;save();render();}});
     $('#switchPack').addEventListener('click',openPacks);
@@ -309,7 +475,9 @@
       <button id="addTask" class="outline-button full" type="button">+ Taak toevoegen</button>
       <button id="restartCurrent" class="quiet-button" style="margin-top:8px" type="button">↻ Dit pakket opnieuw beginnen</button>
       <div class="divider"></div><div class="section-title">Weergave en geluid</div>
-      <label class="setting-switch"><span><b>Geluidje bij voltooien</b><small>Een kort zelfgemaakt vrolijk muziekje</small></span><input id="soundToggle" type="checkbox" ${state.prefs.sound?'checked':''}></label>
+      <label class="setting-switch"><span><b>Geluiden en beloningen</b><small>Willekeurige MP3 (en eindfilmpjes als MP4) uit de sounds-mappen</small></span><input id="soundToggle" type="checkbox" ${state.prefs.sound?'checked':''}></label>
+      <div id="mediaStatus" class="media-status"></div>
+      <button id="refreshSounds" class="outline-button full" type="button">↻ Geluiden opnieuw zoeken</button>
       <label class="setting-switch"><span><b>Scherm wakker houden</b><small>Terwijl een takenpakket actief is</small></span><input id="wakeToggle" type="checkbox" ${state.prefs.wake?'checked':''}></label>
       <button id="deletePack" class="delete-button" type="button">Pakket verwijderen</button>
       <button id="closeSettingsBottom" class="big-button" style="margin-top:8px;min-height:53px;font-size:16px" type="button">Gereed</button>
@@ -363,6 +531,12 @@
       if (!confirm(`Alle afgevinkte taken van '${selected.name}' opnieuw beginnen?`)) return;
       state.sessions[selected.id]=newSession(selected);save();showToast('Pakket opnieuw begonnen');
     });
+    updateMediaStatus();
+    $('#refreshSounds',settingsDialog).addEventListener('click', async () => {
+      const button = $('#refreshSounds',settingsDialog);
+      button.disabled = true;
+      try {await refreshMedia(true);} finally {if (button.isConnected) button.disabled=false;}
+    });
     $('#soundToggle',settingsDialog).addEventListener('change',e=>{state.prefs.sound=e.target.checked;save();});
     $('#wakeToggle',settingsDialog).addEventListener('change',e=>{state.prefs.wake=e.target.checked;save();if (state.prefs.wake) ensureWake();else releaseWake();});
     $('#deletePack',settingsDialog).addEventListener('click',()=>{
@@ -377,10 +551,11 @@
   $('#settingsButton').addEventListener('click',openSettings);
   settingsDialog.addEventListener('close',render);
   packDialog.addEventListener('close',()=>{if (!settingsDialog.open)render();});
-  document.addEventListener('visibilitychange',()=>{if (document.visibilityState==='visible'){updateTime();ensureWake();}else{releaseWake();}});
+  document.addEventListener('visibilitychange',()=>{if (document.visibilityState==='visible'){updateTime();ensureWake();refreshMedia();}else{releaseWake();}});
   window.addEventListener('pageshow',()=>{updateTime();ensureWake();});
   setInterval(updateTime,1000);
   render();
+  refreshMedia(true);
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
   }
