@@ -60,8 +60,16 @@
     .close-button{background:#f0f5f2;border:0;border-radius:50%;width:34px;height:34px;font-size:19px;color:var(--ink)}
     .dialog-content{padding:19px;overflow:auto;max-height:calc(90dvh - 78px)}
     .dialog-description{color:var(--muted);font-size:13px;margin:0 0 15px}
-    .pack-choice{width:100%;display:flex;align-items:center;text-align:left;gap:14px;padding:16px;margin:0 0 10px;border:1px solid var(--line);border-radius:17px;background:white;color:var(--ink)}
-    .pack-choice.selected{border-color:#84d3b4;background:#eef9f4}.pack-choice-icon{font-size:32px}.pack-choice-name{font-weight:750;font-size:17px}.pack-choice-time{color:var(--muted);font-size:12px}
+    .pack-choice{width:100%;display:flex;align-items:center;text-align:left;gap:10px;padding:13px 11px;margin:0 0 10px;border:1px solid var(--line);border-radius:17px;background:white;color:var(--ink)}
+    .pack-choice.selected{border-color:#84d3b4;background:#eef9f4}
+    .pack-choice-icon{font-size:30px;flex:0 0 auto}
+    .pack-choice-info{min-width:0;flex:1}
+    .pack-choice-name{font-weight:750;font-size:16px;overflow-wrap:anywhere}
+    .pack-choice-time{color:var(--muted);font-size:12px;display:block;margin-top:3px}
+    .pack-start{border:0;border-radius:12px;background:var(--green);color:white;min-width:75px;min-height:43px;padding:9px 11px;font-size:14px;font-weight:800;flex:0 0 auto}
+    .pack-start:disabled{background:#edf2f0;color:#718982;cursor:default}
+    .pack-choice.finished{background:#f9fbfa}
+    .pack-choice.finished .pack-choice-name{color:#647a78}
     .section-title{font-size:12px;letter-spacing:.08em;color:var(--muted);font-weight:800;text-transform:uppercase;margin:18px 0 9px}
     .pack-chips{display:flex;gap:8px;flex-wrap:wrap}
     .pack-chip{background:#f2f6f5;border:1px solid var(--line);border-radius:25px;padding:8px 11px;color:var(--ink);font-size:12px;font-weight:700;min-height:38px}
@@ -410,8 +418,16 @@
     clearTimeout(toastTimeout);toastTimeout = setTimeout(() => el.classList.remove('show'),2100);
   }
   function switchTo(packId) {
-    if (!state.packs.some(p => p.id === packId)) return;
-    stopMedia();state.activePackId = packId;getSession();save();packDialog.close();render();
+    const pack = state.packs.find(p => p.id === packId);
+    if (!pack) return;
+    // Een afgerond pakket kan alleen door de ouder in de instellingen worden herstart.
+    // Dit voorkomt dat een kind via de pakketkiezer dezelfde beloning steeds opnieuw krijgt.
+    if (getSession(pack).completed) {showToast('Dit pakket is vandaag al klaar');return;}
+    stopMedia();
+    state.activePackId = packId;
+    save();
+    packDialog.close();
+    render();
   }
   function render() {
     const pack=getPack(), session=getSession(pack), total=pack.tasks.length;
@@ -461,15 +477,33 @@
     dialog.querySelector('[data-close]')?.addEventListener('click',()=>dialog.close());
   }
   function openPacks() {
-    packDialog.innerHTML = `${dialogHeader('Kies je takenpakket')}<div class="dialog-content"><p class="dialog-description">Kies wat je nu gaat doen.</p>
-      ${state.packs.map(p => `<button class="pack-choice ${p.id===state.activePackId?'selected':''}" data-pack="${html(p.id)}"><span class="pack-choice-icon">${html(p.emoji)}</span><span><span class="pack-choice-name">${html(p.name)}</span><br><span class="pack-choice-time">Klaar vóór ${html(p.endTime)} · ${p.tasks.length} taken</span></span></button>`).join('')}
+    const today = dayKey(new Date());
+    packDialog.innerHTML = `${dialogHeader('Kies je takenpakket')}<div class="dialog-content"><p class="dialog-description">Kies welk pakket je wilt starten of verder wilt doen.</p>
+      ${state.packs.map(p => {
+        const session = state.sessions[p.id];
+        const startedAt = session?.startedAt && new Date(session.startedAt);
+        const validToday = startedAt && !Number.isNaN(startedAt.getTime()) && dayKey(startedAt) === today;
+        const completed = !!(validToday && session.completed);
+        const started = !!(validToday && session.index > 0);
+        const label = completed ? 'Klaar ✓' : started ? 'Verder' : 'Start';
+        const summary = completed ? 'Vandaag afgerond' : `Klaar vóór ${html(p.endTime)} · ${p.tasks.length} taken`;
+        return `<div class="pack-choice ${p.id===state.activePackId?'selected':''} ${completed?'finished':''}">
+          <span class="pack-choice-icon" aria-hidden="true">${html(p.emoji)}</span>
+          <div class="pack-choice-info"><div class="pack-choice-name">${html(p.name)}</div><span class="pack-choice-time">${summary}</span></div>
+          <button class="pack-start" type="button" data-start-pack="${html(p.id)}" ${completed?'disabled':''} aria-label="${completed?'Al afgerond: ':started?'Verder met ':'Start '}${html(p.name)}">${label}</button>
+        </div>`;
+      }).join('')}
+      <p class="dialog-description">Een afgerond pakket kan alleen via de ouderinstellingen opnieuw worden gestart.</p>
       <button id="managePacks" class="outline-button full" style="margin-top:6px">+ Pakketten beheren</button></div>`;
     wireClose(packDialog);
-    packDialog.querySelectorAll('[data-pack]').forEach(b => b.addEventListener('click',()=>switchTo(b.dataset.pack)));
+    packDialog.querySelectorAll('[data-start-pack]').forEach(b => b.addEventListener('click',()=>switchTo(b.dataset.startPack)));
     $('#managePacks',packDialog).addEventListener('click',()=>{packDialog.close();openSettings();});
     packDialog.showModal();
   }
   function openSettings() {editorId=state.activePackId;renderSettings();settingsDialog.showModal();}
+  function taskRowsMarkup(pack) {
+    return pack.tasks.map((task,i)=>`<div class="task-row"><input aria-label="Plaatje bij taak ${i+1}" class="emoji-input" type="text" maxlength="5" data-task-input="emoji" data-task-id="${html(task.id)}" value="${html(task.emoji)}"><input aria-label="Naam taak ${i+1}" class="text-input" type="text" maxlength="90" data-task-input="title" data-task-id="${html(task.id)}" value="${html(task.title)}"><button class="mini" type="button" data-move="up" data-id="${html(task.id)}" ${i===0?'disabled':''} aria-label="Taak omhoog">↑</button><button class="mini" type="button" data-move="down" data-id="${html(task.id)}" ${i===pack.tasks.length-1?'disabled':''} aria-label="Taak omlaag">↓</button><button class="mini delete-mini" type="button" data-remove-task="${html(task.id)}" aria-label="Taak verwijderen">×</button></div>`).join('');
+  }
   function renderSettings() {
     const selected = getPack(editorId);
     settingsDialog.innerHTML = `${dialogHeader('Ouderinstellingen')}<div class="dialog-content">
@@ -483,7 +517,7 @@
       </div>
       <div class="field" style="max-width:160px;margin-bottom:14px"><label for="packTime">Eindtijd</label><input type="time" id="packTime" value="${html(selected.endTime)}"></div>
       <div class="section-title">Taken · volgorde van boven naar beneden</div>
-      <div id="taskRows">${selected.tasks.map((task,i)=>`<div class="task-row"><input aria-label="Plaatje bij taak ${i+1}" class="emoji-input" type="text" maxlength="5" data-task-input="emoji" data-task-id="${html(task.id)}" value="${html(task.emoji)}"><input aria-label="Naam taak ${i+1}" class="text-input" type="text" maxlength="90" data-task-input="title" data-task-id="${html(task.id)}" value="${html(task.title)}"><button class="mini" type="button" data-move="up" data-id="${html(task.id)}" ${i===0?'disabled':''} aria-label="Taak omhoog">↑</button><button class="mini" type="button" data-move="down" data-id="${html(task.id)}" ${i===selected.tasks.length-1?'disabled':''} aria-label="Taak omlaag">↓</button><button class="mini delete-mini" type="button" data-remove-task="${html(task.id)}" aria-label="Taak verwijderen">×</button></div>`).join('')}</div>
+      <div id="taskRows">${taskRowsMarkup(selected)}</div>
       <button id="addTask" class="outline-button full" type="button">+ Taak toevoegen</button>
       <button id="restartCurrent" class="quiet-button" style="margin-top:8px" type="button">↻ Dit pakket opnieuw beginnen</button>
       <div class="divider"></div><div class="section-title">Weergave en geluid</div>
@@ -513,30 +547,58 @@
       save();
       if (selected.id === state.activePackId) updateTime();
     });
-    settingsDialog.querySelectorAll('[data-task-input]').forEach(input => input.addEventListener('input',e=>{
-      const task=selected.tasks.find(t=>t.id===e.target.dataset.taskId);
+    // Alleen de takenlijst wordt bijgewerkt; het instellingenscherm blijft staan
+    // op dezelfde scrollpositie. Dat voorkomt terugspringen naar boven.
+    const taskRows = $('#taskRows', settingsDialog);
+    const taskListScroll = $('.dialog-content', settingsDialog);
+    function updateTaskRows(focusTaskId=null, focusMove=null) {
+      const previousScroll = taskListScroll.scrollTop;
+      taskRows.innerHTML = taskRowsMarkup(selected);
+      taskListScroll.scrollTop = previousScroll;
+      if (focusTaskId) {
+        const focusTarget = [...taskRows.querySelectorAll(focusMove ? '[data-move]' : '[data-task-input="title"]')]
+          .find(el => (focusMove ? (el.dataset.id === focusTaskId && el.dataset.move === focusMove) : el.dataset.taskId === focusTaskId));
+        if (focusTarget && !focusTarget.disabled) {
+          // Verplaatsen mag nooit automatisch naar de bovenkant scrollen.
+          if (focusMove) focusTarget.focus({preventScroll:true});
+          else {focusTarget.focus();focusTarget.select();}
+        }
+      }
+    }
+    taskRows.addEventListener('input', e => {
+      const input = e.target.closest('[data-task-input]');
+      if (!input) return;
+      const task = selected.tasks.find(t => t.id === input.dataset.taskId);
       if (!task) return;
-      task[e.target.dataset.taskInput]=e.target.value;
+      task[input.dataset.taskInput] = input.value;
       save();
-    }));
-    $('#addTask',settingsDialog).addEventListener('click',()=>{
-      selected.tasks.push({id:id(),emoji:'⭐',title:'Nieuwe taak'});save();renderSettings();
-      const inputs=settingsDialog.querySelectorAll('input[data-task-input="title"]');
-      inputs[inputs.length-1]?.focus();inputs[inputs.length-1]?.select();
     });
-    settingsDialog.querySelectorAll('[data-move]').forEach(b=>b.addEventListener('click',()=>{
-      const i=selected.tasks.findIndex(t=>t.id===b.dataset.id);
-      const j=i+(b.dataset.move==='up'?-1:1);
-      if (i<0 || j<0 || j>=selected.tasks.length) return;
-      [selected.tasks[i],selected.tasks[j]]=[selected.tasks[j],selected.tasks[i]];
-      save();renderSettings();
-    }));
-    settingsDialog.querySelectorAll('[data-remove-task]').forEach(b=>b.addEventListener('click',()=>{
-      if (selected.tasks.length<=1) {showToast('Laat minstens één taak staan');return;}
-      selected.tasks=selected.tasks.filter(t=>t.id!==b.dataset.removeTask);
-      const session=state.sessions[selected.id];if (session)session.index=Math.min(session.index,selected.tasks.length-1);
-      save();renderSettings();
-    }));
+    $('#addTask',settingsDialog).addEventListener('click',()=>{
+      const newTask={id:id(),emoji:'⭐',title:'Nieuwe taak'};
+      selected.tasks.push(newTask);
+      save();
+      // Spring alleen naar het NIEUWE invulveld, nooit terug naar boven.
+      updateTaskRows(newTask.id);
+    });
+    taskRows.addEventListener('click', e => {
+      const control=e.target.closest('[data-move], [data-remove-task]');
+      if (!control) return;
+      if (control.dataset.move) {
+        const i=selected.tasks.findIndex(t=>t.id===control.dataset.id);
+        const j=i+(control.dataset.move==='up'?-1:1);
+        if (i<0 || j<0 || j>=selected.tasks.length) return;
+        [selected.tasks[i],selected.tasks[j]]=[selected.tasks[j],selected.tasks[i]];
+        save();
+        updateTaskRows(control.dataset.id,control.dataset.move);
+      } else if (control.dataset.removeTask) {
+        if (selected.tasks.length<=1) {showToast('Laat minstens één taak staan');return;}
+        selected.tasks=selected.tasks.filter(t=>t.id!==control.dataset.removeTask);
+        const session=state.sessions[selected.id];
+        if (session) session.index=Math.min(session.index,selected.tasks.length-1);
+        save();
+        updateTaskRows();
+      }
+    });
     $('#restartCurrent',settingsDialog).addEventListener('click',()=>{
       if (!confirm(`Alle afgevinkte taken van '${selected.name}' opnieuw beginnen?`)) return;
       state.sessions[selected.id]=newSession(selected);save();showToast('Pakket opnieuw begonnen');
