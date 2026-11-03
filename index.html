@@ -193,7 +193,7 @@
   function dayKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
   }
-  function newSession(pack) {return {index:0, completed:false, deadline:deadlineToday(pack.endTime).toISOString(), startedAt:new Date().toISOString()};}
+  function newSession(pack) {return {index:0, completed:false, restartEligible:false, deadline:deadlineToday(pack.endTime).toISOString(), startedAt:new Date().toISOString()};}
   function getSession(pack=getPack()) {
     let session = state.sessions[pack.id];
     const started = session?.startedAt ? new Date(session.startedAt) : null;
@@ -208,6 +208,12 @@
     if (session.deadline !== correctDeadline) {session.deadline=correctDeadline;save();}
     session.index = Math.max(0, Math.min(session.index || 0, pack.tasks.length));
     return session;
+  }
+  // Een afgerond pakket wordt alleen herstartbaar als de ouder de eindtijd
+  // expliciet wijzigt naar een tijd die VANDAAG nog moet komen.
+  // De toestemming vervalt vanzelf zodra die eindtijd voorbij is.
+  function canRestartCompleted(pack, session) {
+    return !!(session && session.completed && session.restartEligible && deadlineToday(pack.endTime).getTime() > Date.now());
   }
   let shownDay=dayKey(new Date());
   function updateTime() {
@@ -420,9 +426,14 @@
   function switchTo(packId) {
     const pack = state.packs.find(p => p.id === packId);
     if (!pack) return;
-    // Een afgerond pakket kan alleen door de ouder in de instellingen worden herstart.
-    // Dit voorkomt dat een kind via de pakketkiezer dezelfde beloning steeds opnieuw krijgt.
-    if (getSession(pack).completed) {showToast('Dit pakket is vandaag al klaar');return;}
+    // Een afgerond pakket blijft gesloten, behalve als de ouder eerst
+    // een nieuwe eindtijd in de toekomst heeft ingesteld. Pas bij 'Start'
+    // maken we de nieuwe ronde aan; niet al tijdens het bewerken.
+    const session = getSession(pack);
+    if (session.completed) {
+      if (!canRestartCompleted(pack, session)) {showToast('Dit pakket is vandaag al klaar');return;}
+      state.sessions[pack.id] = newSession(pack);
+    }
     stopMedia();
     state.activePackId = packId;
     save();
@@ -464,7 +475,7 @@
       const now=Date.now();if (now-lastNextTap<400) return;lastNextTap=now;
       session.index++;
       const final = session.index >= total;
-      if (final) session.completed = true;
+      if (final) {session.completed = true;session.restartEligible = false;}
       save();
       playSuccess(final); // Tijdens deze knopdruk starten; belangrijk voor iOS-geluidsregels.
       render();
@@ -484,16 +495,20 @@
         const startedAt = session?.startedAt && new Date(session.startedAt);
         const validToday = startedAt && !Number.isNaN(startedAt.getTime()) && dayKey(startedAt) === today;
         const completed = !!(validToday && session.completed);
-        const started = !!(validToday && session.index > 0);
-        const label = completed ? 'Klaar ✓' : started ? 'Verder' : 'Start';
-        const summary = completed ? 'Vandaag afgerond' : `Klaar vóór ${html(p.endTime)} · ${p.tasks.length} taken`;
-        return `<div class="pack-choice ${p.id===state.activePackId?'selected':''} ${completed?'finished':''}">
+        const restartable = completed && canRestartCompleted(p, session);
+        const finished = completed && !restartable;
+        const started = !!(validToday && session.index > 0 && !completed);
+        const label = finished ? 'Klaar ✓' : started ? 'Verder' : 'Start';
+        const summary = finished ? 'Vandaag afgerond' : restartable
+          ? `Opnieuw starten · eindtijd ${html(p.endTime)}`
+          : `Klaar vóór ${html(p.endTime)} · ${p.tasks.length} taken`;
+        return `<div class="pack-choice ${p.id===state.activePackId?'selected':''} ${finished?'finished':''}">
           <span class="pack-choice-icon" aria-hidden="true">${html(p.emoji)}</span>
           <div class="pack-choice-info"><div class="pack-choice-name">${html(p.name)}</div><span class="pack-choice-time">${summary}</span></div>
-          <button class="pack-start" type="button" data-start-pack="${html(p.id)}" ${completed?'disabled':''} aria-label="${completed?'Al afgerond: ':started?'Verder met ':'Start '}${html(p.name)}">${label}</button>
+          <button class="pack-start" type="button" data-start-pack="${html(p.id)}" ${finished?'disabled':''} aria-label="${finished?'Al afgerond: ':started?'Verder met ':'Start '}${html(p.name)}">${label}</button>
         </div>`;
       }).join('')}
-      <p class="dialog-description">Een afgerond pakket kan alleen via de ouderinstellingen opnieuw worden gestart.</p>
+      <p class="dialog-description">Al klaar? Verander in de ouderinstellingen de eindtijd naar later vandaag om dit pakket opnieuw te kunnen starten.</p>
       <button id="managePacks" class="outline-button full" style="margin-top:6px">+ Pakketten beheren</button></div>`;
     wireClose(packDialog);
     packDialog.querySelectorAll('[data-start-pack]').forEach(b => b.addEventListener('click',()=>switchTo(b.dataset.startPack)));
@@ -540,10 +555,21 @@
     $('#packEmoji',settingsDialog).addEventListener('input',e=>{selected.emoji=e.target.value;save();});
     $('#packTime',settingsDialog).addEventListener('change',e=>{
       if (!/^\d\d:\d\d$/.test(e.target.value)) return;
+      const changed = selected.endTime !== e.target.value;
       selected.endTime=e.target.value;
-      // Ongeacht de oude ingestelde tijd opnieuw berekenen voor VANDAAG.
+      // De nieuwe eindtijd geldt voor VANDAAG, ook bij afgeronde pakketten.
       const session=state.sessions[selected.id];
-      if (session) session.deadline=deadlineToday(selected.endTime).toISOString();
+      if (session) {
+        const deadline=deadlineToday(selected.endTime);
+        session.deadline=deadline.toISOString();
+        if (session.completed && changed) {
+          // Alleen een ECHTE tijdswijziging door de ouder mag een nieuwe
+          // ronde vrijgeven; tijden in het verleden blijven 'Klaar ✓'.
+          const startedAt=session.startedAt ? new Date(session.startedAt) : null;
+          const completedToday=startedAt && !Number.isNaN(startedAt.getTime()) && dayKey(startedAt)===dayKey(new Date());
+          session.restartEligible=!!(completedToday && deadline.getTime() > Date.now());
+        }
+      }
       save();
       if (selected.id === state.activePackId) updateTime();
     });
