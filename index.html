@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f4f8f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FocusTijd">
+  <meta name="description" content="Eén taak tegelijk, een rustige afteller en een vrolijk moment na elke afgeronde taak.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <title>FocusTijd</title>
+  <style>
+    :root{color-scheme:light;--bg:#f4f8f6;--card:#fff;--ink:#233a43;--muted:#667d83;--green:#228b79;--green-deep:#176a5c;--green-light:#e4f4ef;--line:#e1ece9;--pink:#ffeadc;--shadow:0 12px 35px rgba(30,71,62,.07)}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100dvh;background:radial-gradient(ellipse 95% 35% at 40% -6%,#dff3e9 0%,transparent 100%),var(--bg);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);-webkit-tap-highlight-color:transparent}
+    button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible{outline:3px solid #82cdb4;outline-offset:2px}
+    .shell{max-width:480px;min-height:100dvh;padding:calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 26px);margin:0 auto;display:flex;flex-direction:column}
+    .topbar{display:flex;align-items:center;justify-content:space-between;min-height:44px;margin-bottom:25px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:15px;letter-spacing:.02em}
+    .logo{width:31px;height:31px;border-radius:10px;background:var(--green);display:grid;place-items:center;color:white;font-size:19px}
+    .icon-button{border:1px solid var(--line);background:white;box-shadow:0 3px 9px rgba(0,0,0,.02);border-radius:13px;width:45px;height:45px;display:grid;place-items:center;color:var(--ink)}
+    .icon-button svg{width:21px;height:21px}
+    main{flex:1;display:flex;flex-direction:column}
+    .package-button{align-self:center;min-height:41px;padding:8px 15px;border-radius:25px;border:1px solid #d9e8e3;background:#fff;font-size:14px;font-weight:700;color:var(--ink);box-shadow:0 3px 14px rgba(0,0,0,.02)}
+    .arrow{color:var(--muted);margin-left:4px}
+    .countdown-card{margin-top:19px;border-radius:25px;padding:22px 16px 18px;text-align:center;background:#fff;box-shadow:var(--shadow);border:1px solid #eaf1ee}
+    .label{font-size:13px;font-weight:650;letter-spacing:.015em;color:var(--muted)}
+    .clock{font-size:clamp(50px,16vw,66px);font-weight:800;letter-spacing:-.06em;line-height:1.15;font-variant-numeric:tabular-nums;margin:5px 0 1px}
+    .clock-sub{font-size:12px;color:var(--muted);min-height:20px}
+    .countdown-card.overdue{background:#fffcf7}.countdown-card.overdue .clock{color:#98643b}
+    .task-card{display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;min-height:255px;margin-top:14px;padding:23px 18px 22px;background:var(--card);border:1px solid #eaf1ee;box-shadow:var(--shadow);border-radius:25px;animation:appear .25s ease-out}
+    @keyframes appear{from{opacity:.65;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .step{font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--green)}
+    .task-emoji{font-size:68px;line-height:1.3;margin:10px 0 10px}
+    .task-title{font-size:clamp(23px,7vw,30px);line-height:1.19;font-weight:800;letter-spacing:-.035em;overflow-wrap:anywhere;margin:0}
+    .task-hint{font-size:13px;color:var(--muted);margin-top:10px}
+    .progress{margin:15px 2px 20px}
+    .progress-heading{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:8px}
+    .progress-track{height:9px;border-radius:40px;background:#e3ece8;overflow:hidden}
+    .progress-fill{height:100%;background:linear-gradient(90deg,#6ac6a3,#288f7b);border-radius:40px;transition:width .25s ease}
+    .bottom-actions{margin-top:auto}
+    .big-button{width:100%;border:0;border-radius:19px;min-height:68px;background:var(--green);color:white;font-size:19px;line-height:1.3;font-weight:800;box-shadow:0 8px 20px rgba(28,127,107,.20);padding:15px;display:flex;align-items:center;justify-content:center;gap:10px}
+    .big-button:active{transform:scale(.99);background:var(--green-deep)}
+    .lower-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 0}
+    .quiet-button{min-height:38px;border:0;background:transparent;color:var(--muted);font-size:13px;padding:5px 8px}
+    .quiet-button:disabled{opacity:.3}
+    .wake-label{font-size:11px;color:#73898a;display:flex;gap:5px;align-items:center}
+    .dot{display:inline-block;border-radius:100%;width:7px;height:7px;background:#c3c8c9}
+    .dot.good{background:#3caa87}
+    .done-card{margin:auto 0;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:28px 16px;background:white;border-radius:28px;box-shadow:var(--shadow);min-height:340px}
+    .done-emoji{font-size:82px}.done-title{font-size:30px;font-weight:850;margin:8px 0 5px}.done-text{color:var(--muted);margin:0 0 23px}
+    .footer{font-size:10px;color:#96a9a8;text-align:center;margin:13px 0 0}
+    dialog{width:min(460px,calc(100vw - 22px));max-height:min(90dvh,760px);border:0;border-radius:24px;padding:0;box-shadow:0 20px 75px rgba(16,53,47,.25);background:#fff;color:var(--ink)}
+    dialog::backdrop{background:rgba(24,47,49,.36);backdrop-filter:blur(3px)}
+    .dialog-head{padding:22px 19px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;background:white;z-index:1;border-bottom:1px solid var(--line)}
+    .dialog-head h2{font-size:21px;margin:0;font-weight:800}
+    .close-button{background:#f0f5f2;border:0;border-radius:50%;width:34px;height:34px;font-size:19px;color:var(--ink)}
+    .dialog-content{padding:19px;overflow:auto;max-height:calc(90dvh - 78px)}
+    .dialog-description{color:var(--muted);font-size:13px;margin:0 0 15px}
+    .pack-choice{width:100%;display:flex;align-items:center;text-align:left;gap:14px;padding:16px;margin:0 0 10px;border:1px solid var(--line);border-radius:17px;background:white;color:var(--ink)}
+    .pack-choice.selected{border-color:#84d3b4;background:#eef9f4}.pack-choice-icon{font-size:32px}.pack-choice-name{font-weight:750;font-size:17px}.pack-choice-time{color:var(--muted);font-size:12px}
+    .section-title{font-size:12px;letter-spacing:.08em;color:var(--muted);font-weight:800;text-transform:uppercase;margin:18px 0 9px}
+    .pack-chips{display:flex;gap:8px;flex-wrap:wrap}
+    .pack-chip{background:#f2f6f5;border:1px solid var(--line);border-radius:25px;padding:8px 11px;color:var(--ink);font-size:12px;font-weight:700;min-height:38px}
+    .pack-chip.selected{background:#ddf4e8;border-color:#71cba9}
+    .outline-button{background:white;border:1px solid #bcded2;border-radius:12px;color:var(--green-deep);font-weight:750;padding:10px 13px;min-height:43px}
+    .full{width:100%}.input-grid{display:grid;grid-template-columns:70px 1fr;gap:10px;margin-bottom:12px}
+    .field{display:flex;flex-direction:column;gap:5px}.field label{font-size:12px;font-weight:700;color:var(--muted)}
+    input[type="text"],input[type="time"]{width:100%;min-width:0;min-height:43px;border:1px solid #d6e4df;border-radius:11px;padding:8px 10px;background:#fff;color:var(--ink);font-size:16px}
+    .task-row{display:flex;gap:6px;align-items:center;margin-bottom:9px}
+    .task-row .emoji-input{width:50px;flex:0 0 50px;text-align:center;padding:5px}
+    .task-row .text-input{flex:1;min-width:0}
+    .mini{flex:0 0 auto;width:32px;height:38px;border:1px solid var(--line);border-radius:9px;background:#f6f8f7;color:var(--ink);font-size:16px}
+    .mini:disabled{opacity:.25}.delete-mini{color:#a55b51}
+    .setting-switch{display:flex;justify-content:space-between;gap:15px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+    .setting-switch b{font-size:14px}.setting-switch small{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+    .setting-switch input{width:23px;height:23px;accent-color:var(--green)}
+    .delete-button{border:0;background:transparent;color:#af5550;font-size:13px;padding:10px 0}
+    .divider{height:1px;background:var(--line);margin:20px 0}
+    .toast{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 25px);left:50%;transform:translateX(-50%);background:#253b3e;color:#fff;padding:10px 17px;border-radius:20px;white-space:nowrap;font-size:13px;box-shadow:0 10px 30px #213e3e3d;z-index:10;opacity:0;pointer-events:none;transition:opacity .2s}
+    .toast.show{opacity:1}
+    @media(max-height:680px){.topbar{margin-bottom:12px}.countdown-card{margin-top:10px;padding:12px 14px}.clock{font-size:49px}.task-card{min-height:205px;margin-top:10px;padding:13px 16px}.task-emoji{font-size:54px;margin:6px 0}.progress{margin:11px 2px 14px}.big-button{min-height:60px}.shell{padding-top:calc(env(safe-area-inset-top) + 10px)}}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="logo" aria-hidden="true">✓</div><span>FocusTijd</span></div>
+      <button id="settingsButton" class="icon-button" type="button" aria-label="Ouderinstellingen openen" title="Instellingen">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z"/><path d="M19.4 13.5a7.8 7.8 0 0 0 0-3l1.8-1.3-1.9-3.3-2.2.7a7.9 7.9 0 0 0-2.6-1.5L14.1 3h-3.8l-.4 2.1a8 8 0 0 0-2.6 1.5L5.1 6l-1.9 3.3L5 10.6a7.8 7.8 0 0 0 0 3l-1.8 1.3 1.9 3.3 2.2-.7a8 8 0 0 0 2.6 1.5l.4 2.1h3.8l.4-2.1a8 8 0 0 0 2.6-1.5l2.2.7 1.9-3.3-1.8-1.4Z"/></svg>
+      </button>
+    </header>
+    <main id="main" aria-label="Huidige taak"></main>
+    <footer class="footer">Rustig aan. Eén ding tegelijk. 🌱</footer>
+  </div>
+  <dialog id="packDialog" aria-label="Kies takenpakket"></dialog>
+  <dialog id="settingsDialog" aria-label="Ouderinstellingen"></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(() => {
+  'use strict';
+  const KEY = 'focustijd-state-v1';
+  const $ = (s, root=document) => root.querySelector(s);
+  const html = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const id = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const defaultState = () => ({
+    packs: [{ id:'schooldag', name:'Schooldag', emoji:'☀️', endTime:'08:10', tasks:[
+      {id:'sd1', emoji:'🪥', title:'Tanden poetsen'},
+      {id:'sd2', emoji:'💦', title:'Opfrissen'},
+      {id:'sd3', emoji:'👕', title:'Kleren aantrekken'},
+      {id:'sd4', emoji:'🧺', title:'Vieze kleren in de wasmand'},
+      {id:'sd5', emoji:'💡', title:'Licht uit'},
+      {id:'sd6', emoji:'🎒', title:'Tas pakken'}
+    ]}],
+    activePackId:'schooldag',
+    sessions:{},
+    prefs:{sound:true, wake:true}
+  });
+  function load() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY));
+      if (saved && Array.isArray(saved.packs) && saved.packs.length && saved.packs.every(p => Array.isArray(p.tasks))) {
+        saved.prefs = {sound:true, wake:true, ...(saved.prefs || {})};
+        saved.sessions ||= {};
+        if (!saved.packs.some(p => p.id === saved.activePackId)) saved.activePackId = saved.packs[0].id;
+        return saved;
+      }
+    } catch (_) { /* Browseropslag is soms uitgeschakeld */ }
+    return defaultState();
+  }
+  let state = load();
+  let editorId = state.activePackId;
+  let wakeLock = null;
+  let wakePending = false;
+  let audioContext = null;
+  let lastNextTap = 0;
+  let toastTimeout = null;
+  const main = $('#main');
+  const packDialog = $('#packDialog');
+  const settingsDialog = $('#settingsDialog');
+
+  function save() { try {localStorage.setItem(KEY, JSON.stringify(state));} catch (_) {showToast('Opslaan is niet gelukt');} }
+  function getPack(packId=state.activePackId) {return state.packs.find(p => p.id === packId) || state.packs[0];}
+  function nextDeadline(endTime) {
+    const [hour, minute] = (endTime || '08:10').split(':').map(Number);
+    const now = new Date(), deadline = new Date();
+    deadline.setHours(hour || 0, minute || 0, 0, 0);
+    if (deadline <= now) deadline.setDate(deadline.getDate() + 1);
+    return deadline.toISOString();
+  }
+  function newSession(pack) {return {index:0, completed:false, deadline:nextDeadline(pack.endTime), startedAt:new Date().toISOString()};}
+  function getSession(pack=getPack()) {
+    let session = state.sessions[pack.id];
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // De volgende kalenderdag begint het pakket automatisch weer bij taak één.
+    if (!session || !session.deadline || Number.isNaN(new Date(session.deadline).getTime()) || new Date(session.deadline) < today) {
+      session = newSession(pack);
+      state.sessions[pack.id] = session;
+      save();
+    }
+    session.index = Math.max(0, Math.min(session.index || 0, pack.tasks.length));
+    return session;
+  }
+  function updateTime() {
+    const pack = getPack(), session = getSession(pack);
+    const clock = $('#clock');
+    if (!clock || session.completed) return;
+    const seconds = Math.max(0, Math.ceil((new Date(session.deadline).getTime()-Date.now())/1000));
+    const hrs = Math.floor(seconds/3600), mins = Math.floor((seconds%3600)/60), secs = seconds%60;
+    const pad = n => String(n).padStart(2,'0');
+    clock.textContent = hrs ? `${hrs}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
+    const sub = $('#clockSub');
+    if (sub) sub.textContent = seconds ? 'De tijd loopt vanzelf door' : 'De tijd is voorbij. Maak rustig af wat je doet.';
+    $('#countdownCard')?.classList.toggle('overdue', !seconds);
+  }
+  function renderWake() {
+    const el = $('#wakeState');
+    if (!el) return;
+    if (!state.prefs.wake) {el.innerHTML = '<span class="dot"></span> Scherm-aan uit';return;}
+    if (!('wakeLock' in navigator)) {el.innerHTML = '<span class="dot"></span> Scherm-aan niet beschikbaar';return;}
+    if (wakeLock && !wakeLock.released) {el.innerHTML = '<span class="dot good"></span> Scherm blijft aan';return;}
+    el.innerHTML = '<span class="dot"></span> Scherm-aan niet bevestigd';
+  }
+  async function releaseWake() {
+    const old = wakeLock;
+    wakeLock = null;
+    if (old && !old.released) { try {await old.release();}catch(_){} }
+    renderWake();
+  }
+  async function ensureWake() {
+    const session = getSession();
+    if (!state.prefs.wake || session.completed || document.visibilityState !== 'visible') {await releaseWake();return;}
+    if (!('wakeLock' in navigator) || wakePending || (wakeLock && !wakeLock.released)) {renderWake();return;}
+    wakePending = true;
+    try {
+      const lock = await navigator.wakeLock.request('screen');
+      // Wisseling van pakket/instelling tijdens wachten: niet blijven vasthouden.
+      if (!state.prefs.wake || getSession().completed || document.visibilityState !== 'visible') {await lock.release();return;}
+      wakeLock = lock;
+      lock.addEventListener('release', () => {if (wakeLock === lock) wakeLock = null;renderWake();});
+    } catch (_) { /* Spaarstand of browser kan dit weigeren */ }
+    finally {wakePending = false;renderWake();}
+  }
+  function chime(final=false) {
+    if (!state.prefs.sound) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      audioContext ||= new Ctx();
+      if (audioContext.state === 'suspended') audioContext.resume();
+      const t = audioContext.currentTime + .02;
+      const notes = final ? [523.25, 659.25, 783.99] : [587.33, 783.99];
+      notes.forEach((frequency, i) => {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        const onset = t + i*.115;
+        osc.type = 'sine'; osc.frequency.setValueAtTime(frequency, onset);
+        gain.gain.setValueAtTime(.0001,onset);
+        gain.gain.exponentialRampToValueAtTime(.085,onset+.024);
+        gain.gain.exponentialRampToValueAtTime(.0001,onset+.20);
+        osc.connect(gain); gain.connect(audioContext.destination);
+        osc.start(onset);osc.stop(onset+.21);
+      });
+    } catch (_) { /* Zonder geluid blijft de app bruikbaar */ }
+  }
+  function showToast(message) {
+    const el = $('#toast'); el.textContent = message;el.classList.add('show');
+    clearTimeout(toastTimeout);toastTimeout = setTimeout(() => el.classList.remove('show'),2100);
+  }
+  function resetPack() {state.sessions[getPack().id] = newSession(getPack()); save(); render();}
+  function switchTo(packId) {
+    if (!state.packs.some(p => p.id === packId)) return;
+    state.activePackId = packId;getSession();save();packDialog.close();render();
+  }
+  function render() {
+    const pack=getPack(), session=getSession(pack), total=pack.tasks.length;
+    if (!total) {
+      main.innerHTML = `<button class="package-button" id="switchPack">${html(pack.emoji)} ${html(pack.name)} <span class="arrow">⌄</span></button><div class="done-card"><div class="done-emoji">📝</div><div class="done-title">Nog geen taken</div><p class="done-text">Voeg taken toe in de instellingen.</p><button class="big-button" id="openSettings">Taken toevoegen</button></div>`;
+      $('#openSettings').addEventListener('click',openSettings);
+      $('#switchPack').addEventListener('click',openPacks);
+      releaseWake();return;
+    }
+    if (session.completed) {
+      main.innerHTML = `<button class="package-button" id="switchPack">${html(pack.emoji)} ${html(pack.name)} <span class="arrow">⌄</span></button>
+      <div class="done-card" aria-live="polite"><div class="done-emoji">🎉</div><div class="done-title">Alles klaar!</div><p class="done-text">Wat goed! Je hebt alle ${total} taken gedaan.</p><button class="big-button" id="resetPack">↻ &nbsp; Nog een keer</button></div>`;
+      $('#resetPack').addEventListener('click', () => {if (confirm('Wil je opnieuw beginnen met dit takenpakket?')) resetPack();});
+      $('#switchPack').addEventListener('click',openPacks);
+      releaseWake();return;
+    }
+    const current=pack.tasks[session.index] || pack.tasks[0];
+    const done=Math.min(session.index,total);
+    main.innerHTML = `
+      <button class="package-button" id="switchPack">${html(pack.emoji)} ${html(pack.name)} <span class="arrow">⌄</span></button>
+      <section class="countdown-card" id="countdownCard" aria-label="Resterende tijd">
+        <div class="label">Nog tot ${html(pack.endTime)}</div><div class="clock" id="clock">--:--</div><div class="clock-sub" id="clockSub"></div>
+      </section>
+      <section class="task-card" aria-label="Doe nu deze taak">
+        <div class="step">Taak ${session.index+1} van ${total}</div>
+        <div class="task-emoji" aria-hidden="true">${html(current.emoji || '⭐')}</div>
+        <h1 class="task-title" aria-live="polite">${html(current.title)}</h1>
+        <div class="task-hint">Alleen deze taak telt nu</div>
+      </section>
+      <div class="progress"><div class="progress-heading"><span>Jouw voortgang</span><span>${done} van ${total} klaar</span></div><div class="progress-track" role="progressbar" aria-label="Taken afgerond" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><div class="progress-fill" style="width:${(100*done/total).toFixed(1)}%"></div></div></div>
+      <div class="bottom-actions"><button class="big-button" id="nextTask" type="button">✓ &nbsp; ${session.index === total-1 ? 'Laatste taak klaar!' : 'Klaar! Volgende taak'}</button>
+      <div class="lower-actions"><button id="previousTask" class="quiet-button" type="button" ${session.index===0?'disabled':''}>← Vorige taak</button><div id="wakeState" class="wake-label"></div></div></div>`;
+    $('#nextTask').addEventListener('click',() => {
+      const now=Date.now();if (now-lastNextTap<400) return;lastNextTap=now;
+      session.index++;
+      if (session.index>=total) {session.completed=true;chime(true);} else chime();
+      save();render();
+    });
+    $('#previousTask').addEventListener('click',() => {if (session.index>0) {session.index--;save();render();}});
+    $('#switchPack').addEventListener('click',openPacks);
+    updateTime();ensureWake();renderWake();
+  }
+  function dialogHeader(title) {return `<div class="dialog-head"><h2>${title}</h2><button class="close-button" type="button" data-close aria-label="Sluiten">×</button></div>`;}
+  function wireClose(dialog) {
+    dialog.querySelector('[data-close]')?.addEventListener('click',()=>dialog.close());
+  }
+  function openPacks() {
+    packDialog.innerHTML = `${dialogHeader('Kies je takenpakket')}<div class="dialog-content"><p class="dialog-description">Kies wat je nu gaat doen.</p>
+      ${state.packs.map(p => `<button class="pack-choice ${p.id===state.activePackId?'selected':''}" data-pack="${html(p.id)}"><span class="pack-choice-icon">${html(p.emoji)}</span><span><span class="pack-choice-name">${html(p.name)}</span><br><span class="pack-choice-time">Klaar vóór ${html(p.endTime)} · ${p.tasks.length} taken</span></span></button>`).join('')}
+      <button id="managePacks" class="outline-button full" style="margin-top:6px">+ Pakketten beheren</button></div>`;
+    wireClose(packDialog);
+    packDialog.querySelectorAll('[data-pack]').forEach(b => b.addEventListener('click',()=>switchTo(b.dataset.pack)));
+    $('#managePacks',packDialog).addEventListener('click',()=>{packDialog.close();openSettings();});
+    packDialog.showModal();
+  }
+  function openSettings() {editorId=state.activePackId;renderSettings();settingsDialog.showModal();}
+  function renderSettings() {
+    const selected = getPack(editorId);
+    settingsDialog.innerHTML = `${dialogHeader('Ouderinstellingen')}<div class="dialog-content">
+      <p class="dialog-description">Alle aanpassingen worden automatisch op deze iPhone bewaard.</p>
+      <div class="section-title">Takenpakketten</div>
+      <div class="pack-chips">${state.packs.map(p=>`<button class="pack-chip ${p.id===selected.id?'selected':''}" data-editor-pack="${html(p.id)}">${html(p.emoji)} ${html(p.name)}</button>`).join('')}<button class="pack-chip" id="newPack">+ Nieuw</button></div>
+      <div class="section-title">Pakket aanpassen</div>
+      <div class="input-grid">
+        <div class="field"><label for="packEmoji">Plaatje</label><input type="text" maxlength="5" id="packEmoji" value="${html(selected.emoji)}"></div>
+        <div class="field"><label for="packName">Naam</label><input type="text" maxlength="45" id="packName" value="${html(selected.name)}"></div>
+      </div>
+      <div class="field" style="max-width:160px;margin-bottom:14px"><label for="packTime">Eindtijd</label><input type="time" id="packTime" value="${html(selected.endTime)}"></div>
+      <div class="section-title">Taken · volgorde van boven naar beneden</div>
+      <div id="taskRows">${selected.tasks.map((task,i)=>`<div class="task-row"><input aria-label="Plaatje bij taak ${i+1}" class="emoji-input" type="text" maxlength="5" data-task-input="emoji" data-task-id="${html(task.id)}" value="${html(task.emoji)}"><input aria-label="Naam taak ${i+1}" class="text-input" type="text" maxlength="90" data-task-input="title" data-task-id="${html(task.id)}" value="${html(task.title)}"><button class="mini" type="button" data-move="up" data-id="${html(task.id)}" ${i===0?'disabled':''} aria-label="Taak omhoog">↑</button><button class="mini" type="button" data-move="down" data-id="${html(task.id)}" ${i===selected.tasks.length-1?'disabled':''} aria-label="Taak omlaag">↓</button><button class="mini delete-mini" type="button" data-remove-task="${html(task.id)}" aria-label="Taak verwijderen">×</button></div>`).join('')}</div>
+      <button id="addTask" class="outline-button full" type="button">+ Taak toevoegen</button>
+      <button id="restartCurrent" class="quiet-button" style="margin-top:8px" type="button">↻ Dit pakket opnieuw beginnen</button>
+      <div class="divider"></div><div class="section-title">Weergave en geluid</div>
+      <label class="setting-switch"><span><b>Geluidje bij voltooien</b><small>Een kort zelfgemaakt vrolijk muziekje</small></span><input id="soundToggle" type="checkbox" ${state.prefs.sound?'checked':''}></label>
+      <label class="setting-switch"><span><b>Scherm wakker houden</b><small>Terwijl een takenpakket actief is</small></span><input id="wakeToggle" type="checkbox" ${state.prefs.wake?'checked':''}></label>
+      <button id="deletePack" class="delete-button" type="button">Pakket verwijderen</button>
+      <button id="closeSettingsBottom" class="big-button" style="margin-top:8px;min-height:53px;font-size:16px" type="button">Gereed</button>
+      <p style="font-size:11px;color:var(--muted);margin-top:13px">Tip: schakel Begeleide toegang in om te voorkomen dat het kind de app verlaat.</p>
+    </div>`;
+    wireClose(settingsDialog);
+    $('#closeSettingsBottom',settingsDialog).addEventListener('click',()=>settingsDialog.close());
+    settingsDialog.querySelectorAll('[data-editor-pack]').forEach(b=>b.addEventListener('click',()=>{editorId=b.dataset.editorPack;renderSettings();}));
+    $('#newPack',settingsDialog).addEventListener('click',()=>{
+      const p={id:id(),name:'Nieuw pakket',emoji:'🌟',endTime:'20:00',tasks:[{id:id(),emoji:'⭐',title:'Mijn eerste taak'}]};
+      state.packs.push(p);editorId=p.id;save();renderSettings();$('#packName',settingsDialog)?.focus();$('#packName',settingsDialog)?.select();
+    });
+    $('#packName',settingsDialog).addEventListener('input',e=>{selected.name=e.target.value;save();});
+    $('#packEmoji',settingsDialog).addEventListener('input',e=>{selected.emoji=e.target.value;save();});
+    $('#packTime',settingsDialog).addEventListener('change',e=>{
+      if (!/^\d\d:\d\d$/.test(e.target.value)) return;
+      selected.endTime=e.target.value;
+      // Bestaande lopende sessie blijft op dezelfde kalenderdag eindigen.
+      const session=state.sessions[selected.id];
+      if (session && session.deadline) {
+        const date=new Date(session.deadline),[hh,mm]=selected.endTime.split(':').map(Number);
+        date.setHours(hh,mm,0,0);session.deadline=date.toISOString();
+      }
+      save();
+    });
+    settingsDialog.querySelectorAll('[data-task-input]').forEach(input => input.addEventListener('input',e=>{
+      const task=selected.tasks.find(t=>t.id===e.target.dataset.taskId);
+      if (!task) return;
+      task[e.target.dataset.taskInput]=e.target.value;
+      save();
+    }));
+    $('#addTask',settingsDialog).addEventListener('click',()=>{
+      selected.tasks.push({id:id(),emoji:'⭐',title:'Nieuwe taak'});save();renderSettings();
+      const inputs=settingsDialog.querySelectorAll('input[data-task-input="title"]');
+      inputs[inputs.length-1]?.focus();inputs[inputs.length-1]?.select();
+    });
+    settingsDialog.querySelectorAll('[data-move]').forEach(b=>b.addEventListener('click',()=>{
+      const i=selected.tasks.findIndex(t=>t.id===b.dataset.id);
+      const j=i+(b.dataset.move==='up'?-1:1);
+      if (i<0 || j<0 || j>=selected.tasks.length) return;
+      [selected.tasks[i],selected.tasks[j]]=[selected.tasks[j],selected.tasks[i]];
+      save();renderSettings();
+    }));
+    settingsDialog.querySelectorAll('[data-remove-task]').forEach(b=>b.addEventListener('click',()=>{
+      if (selected.tasks.length<=1) {showToast('Laat minstens één taak staan');return;}
+      selected.tasks=selected.tasks.filter(t=>t.id!==b.dataset.removeTask);
+      const session=state.sessions[selected.id];if (session)session.index=Math.min(session.index,selected.tasks.length-1);
+      save();renderSettings();
+    }));
+    $('#restartCurrent',settingsDialog).addEventListener('click',()=>{
+      if (!confirm(`Alle afgevinkte taken van '${selected.name}' opnieuw beginnen?`)) return;
+      state.sessions[selected.id]=newSession(selected);save();showToast('Pakket opnieuw begonnen');
+    });
+    $('#soundToggle',settingsDialog).addEventListener('change',e=>{state.prefs.sound=e.target.checked;save();});
+    $('#wakeToggle',settingsDialog).addEventListener('change',e=>{state.prefs.wake=e.target.checked;save();if (state.prefs.wake) ensureWake();else releaseWake();});
+    $('#deletePack',settingsDialog).addEventListener('click',()=>{
+      if (state.packs.length===1) {showToast('Er moet één pakket blijven');return;}
+      if (!confirm(`Weet je zeker dat je '${selected.name}' wilt verwijderen?`)) return;
+      state.packs=state.packs.filter(p=>p.id!==selected.id);
+      delete state.sessions[selected.id];
+      if (state.activePackId===selected.id)state.activePackId=state.packs[0].id;
+      editorId=state.packs[0].id;save();renderSettings();
+    });
+  }
+  $('#settingsButton').addEventListener('click',openSettings);
+  settingsDialog.addEventListener('close',render);
+  packDialog.addEventListener('close',()=>{if (!settingsDialog.open)render();});
+  document.addEventListener('visibilitychange',()=>{if (document.visibilityState==='visible'){updateTime();ensureWake();}else{releaseWake();}});
+  window.addEventListener('pageshow',()=>{updateTime();ensureWake();});
+  setInterval(updateTime,1000);
+  render();
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+  }
+})();
+</script>
+</body>
+</html>
