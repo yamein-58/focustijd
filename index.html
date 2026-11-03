@@ -44,15 +44,15 @@
     .bottom-actions{margin-top:auto}
     .big-button{width:100%;border:0;border-radius:19px;min-height:68px;background:var(--green);color:white;font-size:19px;line-height:1.3;font-weight:800;box-shadow:0 8px 20px rgba(28,127,107,.20);padding:15px;display:flex;align-items:center;justify-content:center;gap:10px}
     .big-button:active{transform:scale(.99);background:var(--green-deep)}
-    .lower-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0 0}
+    .lower-actions{display:flex;justify-content:flex-start;align-items:center;margin:12px 2px 0}
+    .previous-task{color:var(--muted);font-size:13px;line-height:1.35;overflow-wrap:anywhere}
     .quiet-button{min-height:38px;border:0;background:transparent;color:var(--muted);font-size:13px;padding:5px 8px}
-    .quiet-button:disabled{opacity:.3}
-    .wake-label{font-size:11px;color:#73898a;display:flex;gap:5px;align-items:center}
+    .wake-label{font-size:11px;color:#73898a;display:flex;justify-content:center;gap:5px;align-items:center;text-align:center}
     .dot{display:inline-block;border-radius:100%;width:7px;height:7px;background:#c3c8c9}
     .dot.good{background:#3caa87}
     .done-card{margin:auto 0;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:28px 16px;background:white;border-radius:28px;box-shadow:var(--shadow);min-height:340px}
     .done-emoji{font-size:82px}.done-title{font-size:30px;font-weight:850;margin:8px 0 5px}.done-text{color:var(--muted);margin:0 0 23px}
-    .footer{font-size:10px;color:#96a9a8;text-align:center;margin:13px 0 0}
+    .footer{display:flex;align-items:center;justify-content:center;min-height:20px;margin:15px 0 0}
     dialog{width:min(460px,calc(100vw - 22px));max-height:min(90dvh,760px);border:0;border-radius:24px;padding:0;box-shadow:0 20px 75px rgba(16,53,47,.25);background:#fff;color:var(--ink)}
     dialog::backdrop{background:rgba(24,47,49,.36);backdrop-filter:blur(3px)}
     .dialog-head{padding:22px 19px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;background:white;z-index:1;border-bottom:1px solid var(--line)}
@@ -89,8 +89,7 @@
     .reward-content{padding:0 12px 16px;text-align:center}
     .reward-video{display:block;width:100%;max-height:62dvh;object-fit:contain;border-radius:13px;background:#152326}
     .reward-explainer{font-size:13px;color:var(--muted);margin:10px 0 0}
-    .reward-retry{margin:11px 0 0}
-    .reward-replay{display:flex;justify-content:center;margin:12px 0 0}
+    .reward-start{margin:11px 0 0}
     .media-status{font-size:12px;color:var(--muted);line-height:1.45;padding:4px 0 10px}
     @media(max-height:680px){.topbar{margin-bottom:12px}.countdown-card{margin-top:10px;padding:12px 14px}.clock{font-size:49px}.task-card{min-height:205px;margin-top:10px;padding:13px 16px}.task-emoji{font-size:54px;margin:6px 0}.progress{margin:11px 2px 14px}.big-button{min-height:60px}.shell{padding-top:calc(env(safe-area-inset-top) + 10px)}}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -105,7 +104,7 @@
       </button>
     </header>
     <main id="main" aria-label="Huidige taak"></main>
-    <footer class="footer">Rustig aan. Eén ding tegelijk. 🌱</footer>
+    <footer class="footer"><div id="wakeState" class="wake-label" aria-live="polite"></div></footer>
   </div>
   <dialog id="packDialog" aria-label="Kies takenpakket"></dialog>
   <dialog id="settingsDialog" aria-label="Ouderinstellingen"></dialog>
@@ -177,32 +176,39 @@
 
   function save() { try {localStorage.setItem(KEY, JSON.stringify(state));} catch (_) {showToast('Opslaan is niet gelukt');} }
   function getPack(packId=state.activePackId) {return state.packs.find(p => p.id === packId) || state.packs[0];}
-  function nextDeadline(endTime) {
+  // Iedere timer telt af naar een lokale kloktijd op DEZE kalenderdag.
+  // Een verlopen eindtijd blijft op 00:00 staan; nooit stilzwijgend +24 uur.
+  function deadlineToday(endTime, date=new Date()) {
     const [hour, minute] = (endTime || '08:10').split(':').map(Number);
-    const now = new Date(), deadline = new Date();
-    deadline.setHours(hour || 0, minute || 0, 0, 0);
-    if (deadline <= now) deadline.setDate(deadline.getDate() + 1);
-    return deadline.toISOString();
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, 0, 0);
   }
-  function newSession(pack) {return {index:0, completed:false, deadline:nextDeadline(pack.endTime), startedAt:new Date().toISOString()};}
+  function dayKey(date) {
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  }
+  function newSession(pack) {return {index:0, completed:false, deadline:deadlineToday(pack.endTime).toISOString(), startedAt:new Date().toISOString()};}
   function getSession(pack=getPack()) {
     let session = state.sessions[pack.id];
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    // De volgende kalenderdag begint het pakket automatisch weer bij taak één.
-    if (!session || !session.deadline || Number.isNaN(new Date(session.deadline).getTime()) || new Date(session.deadline) < today) {
+    const started = session?.startedAt ? new Date(session.startedAt) : null;
+    // Nieuwe dag betekent een nieuwe ronde; een oude v2-deadline van 'morgen' niet overnemen.
+    if (!session || !started || Number.isNaN(started.getTime()) || dayKey(started) !== dayKey(new Date())) {
       session = newSession(pack);
       state.sessions[pack.id] = session;
       save();
     }
+    // Bestaande taken/voortgang blijven behouden, ook bij upgraden van v2.
+    const correctDeadline = deadlineToday(pack.endTime).toISOString();
+    if (session.deadline !== correctDeadline) {session.deadline=correctDeadline;save();}
     session.index = Math.max(0, Math.min(session.index || 0, pack.tasks.length));
     return session;
   }
+  let shownDay=dayKey(new Date());
   function updateTime() {
+    // Ook wanneer het voltooidscherm in beeld is wordt om middernacht opnieuw gerenderd.
+    if (dayKey(new Date()) !== shownDay) {shownDay=dayKey(new Date());render();return;}
     const pack = getPack(), session = getSession(pack);
     const clock = $('#clock');
     if (!clock || session.completed) return;
-    const seconds = Math.max(0, Math.ceil((new Date(session.deadline).getTime()-Date.now())/1000));
+    const seconds = Math.max(0, Math.ceil((deadlineToday(pack.endTime).getTime()-Date.now())/1000));
     const hrs = Math.floor(seconds/3600), mins = Math.floor((seconds%3600)/60), secs = seconds%60;
     const pad = n => String(n).padStart(2,'0');
     clock.textContent = hrs ? `${hrs}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
@@ -214,6 +220,7 @@
     const el = $('#wakeState');
     if (!el) return;
     if (!state.prefs.wake) {el.innerHTML = '<span class="dot"></span> Scherm-aan uit';return;}
+    if (getSession().completed && !missionVideoActive) {el.innerHTML = '<span class="dot"></span> Scherm mag uit';return;}
     if (!('wakeLock' in navigator)) {el.innerHTML = '<span class="dot"></span> Scherm-aan niet beschikbaar';return;}
     if (wakeLock && !wakeLock.released) {el.innerHTML = '<span class="dot good"></span> Scherm blijft aan';return;}
     el.innerHTML = '<span class="dot"></span> Scherm-aan niet bevestigd';
@@ -326,22 +333,30 @@
   }
   function showRewardVideo(url) {
     missionVideoActive = true;
-    rewardDialog.innerHTML = `<div class="reward-header"><span>🎉 Alle taken klaar!</span><button id="closeReward" class="close-button" type="button" aria-label="Filmpje sluiten">×</button></div><div class="reward-content"><video id="rewardVideo" class="reward-video" playsinline webkit-playsinline controls preload="auto"></video><p class="reward-explainer">Geniet van je beloning!</p><button id="retryReward" type="button" class="outline-button reward-retry" hidden>▶ Filmpje afspelen</button></div>`;
+    rewardDialog.innerHTML = `<div class="reward-header"><span>🎉 Alle taken klaar!</span><button id="closeReward" class="close-button" type="button" aria-label="Filmpje sluiten">×</button></div><div class="reward-content"><video id="rewardVideo" class="reward-video" playsinline webkit-playsinline preload="auto" disablepictureinpicture disableremoteplayback></video><p class="reward-explainer">Geniet van je beloning!</p><button id="startReward" type="button" class="outline-button reward-start" hidden>▶ Filmpje starten</button></div>`;
     const video = $('#rewardVideo', rewardDialog);
     video.src = url;
     video.playsInline = true;
+    video.controls = false; // Geen tijdlijn, pauze- of herhaalknop voor het kind.
     playingMedia = video;
     $('#closeReward', rewardDialog).addEventListener('click', closeReward);
-    const retry = $('#retryReward', rewardDialog);
-    retry.addEventListener('click', () => {video.play().then(() => {retry.hidden=true;}).catch(() => showToast('Dit filmpje kan niet worden gestart'));});
+    const start = $('#startReward', rewardDialog);
+    // Alleen als iOS automatisch starten weigert, is één handmatige start mogelijk.
+    let startUsed = false;
+    start.addEventListener('click', () => {
+      if (startUsed) return;
+      startUsed = true;
+      start.hidden = true;
+      video.play().catch(() => {showToast('Filmpje kon niet starten');closeReward();});
+    });
     video.addEventListener('ended', closeReward);
-    video.addEventListener('error', () => {if (playingMedia === video) {retry.hidden=false;showToast('Filmpje niet beschikbaar');}});
+    video.addEventListener('error', () => {if (playingMedia === video) {showToast('Filmpje niet beschikbaar');closeReward();}});
     rewardDialog.showModal();
     try {
       // Direct tijdens de tik op 'Klaar!' aanroepen: iPhone staat geluid met gebruikersactie toe.
       const started = video.play();
-      if (started && started.catch) started.catch(() => {if (playingMedia === video) retry.hidden=false;});
-    } catch (_) {retry.hidden=false;}
+      if (started && started.catch) started.catch(() => {if (playingMedia === video && !startUsed) start.hidden=false;});
+    } catch (_) {start.hidden=false;}
     ensureWake();
   }
   function playSoundFile(url, final) {
@@ -353,7 +368,7 @@
     try {
       const started = audio.play();
       if (started && started.catch) started.catch(() => {
-        if (playingMedia === audio) {playingMedia=null;chime(final); if (final) showToast('Tik op Beloning afspelen');}
+        if (playingMedia === audio) {playingMedia=null;chime(final);}
       });
     } catch (_) {playingMedia=null;chime(final);}
   }
@@ -394,7 +409,6 @@
     const el = $('#toast'); el.textContent = message;el.classList.add('show');
     clearTimeout(toastTimeout);toastTimeout = setTimeout(() => el.classList.remove('show'),2100);
   }
-  function resetPack() {stopMedia();state.sessions[getPack().id] = newSession(getPack()); save(); render();}
   function switchTo(packId) {
     if (!state.packs.some(p => p.id === packId)) return;
     stopMedia();state.activePackId = packId;getSession();save();packDialog.close();render();
@@ -409,13 +423,12 @@
     }
     if (session.completed) {
       main.innerHTML = `<button class="package-button" id="switchPack">${html(pack.emoji)} ${html(pack.name)} <span class="arrow">⌄</span></button>
-      <div class="done-card" aria-live="polite"><div class="done-emoji">🎉</div><div class="done-title">Alles klaar!</div><p class="done-text">Wat goed! Je hebt alle ${total} taken gedaan.</p><button class="big-button" id="resetPack">↻ &nbsp; Nog een keer</button><div class="reward-replay"><button class="outline-button" id="replayReward" type="button">▶ Beloning nog een keer</button></div></div>`;
-      $('#resetPack').addEventListener('click', () => {if (confirm('Wil je opnieuw beginnen met dit takenpakket?')) resetPack();});
-      $('#replayReward').addEventListener('click', () => playSuccess(true));
+      <div class="done-card" aria-live="polite"><div class="done-emoji">🎉</div><div class="done-title">Alles klaar!</div><p class="done-text">Wat goed! Je hebt alle ${total} taken gedaan.</p><p class="done-text">Je bent klaar voor vandaag. 🌟</p></div>`;
       $('#switchPack').addEventListener('click',openPacks);
       if (!missionVideoActive) releaseWake();return;
     }
     const current=pack.tasks[session.index] || pack.tasks[0];
+    const previous=session.index>0 ? pack.tasks[session.index-1] : null;
     const done=Math.min(session.index,total);
     main.innerHTML = `
       <button class="package-button" id="switchPack">${html(pack.emoji)} ${html(pack.name)} <span class="arrow">⌄</span></button>
@@ -430,7 +443,7 @@
       </section>
       <div class="progress"><div class="progress-heading"><span>Jouw voortgang</span><span>${done} van ${total} klaar</span></div><div class="progress-track" role="progressbar" aria-label="Taken afgerond" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><div class="progress-fill" style="width:${(100*done/total).toFixed(1)}%"></div></div></div>
       <div class="bottom-actions"><button class="big-button" id="nextTask" type="button">✓ &nbsp; ${session.index === total-1 ? 'Laatste taak klaar!' : 'Klaar! Volgende taak'}</button>
-      <div class="lower-actions"><button id="previousTask" class="quiet-button" type="button" ${session.index===0?'disabled':''}>← Vorige taak</button><div id="wakeState" class="wake-label"></div></div></div>`;
+      ${previous ? `<div class="lower-actions"><span class="previous-task">✓ Vorige taak: ${html(previous.title)}</span></div>` : ''}</div>`;
     $('#nextTask').addEventListener('click',() => {
       const now=Date.now();if (now-lastNextTap<400) return;lastNextTap=now;
       session.index++;
@@ -440,7 +453,6 @@
       playSuccess(final); // Tijdens deze knopdruk starten; belangrijk voor iOS-geluidsregels.
       render();
     });
-    $('#previousTask').addEventListener('click',() => {if (session.index>0) {session.index--;save();render();}});
     $('#switchPack').addEventListener('click',openPacks);
     updateTime();ensureWake();renderWake();
   }
@@ -495,13 +507,11 @@
     $('#packTime',settingsDialog).addEventListener('change',e=>{
       if (!/^\d\d:\d\d$/.test(e.target.value)) return;
       selected.endTime=e.target.value;
-      // Bestaande lopende sessie blijft op dezelfde kalenderdag eindigen.
+      // Ongeacht de oude ingestelde tijd opnieuw berekenen voor VANDAAG.
       const session=state.sessions[selected.id];
-      if (session && session.deadline) {
-        const date=new Date(session.deadline),[hh,mm]=selected.endTime.split(':').map(Number);
-        date.setHours(hh,mm,0,0);session.deadline=date.toISOString();
-      }
+      if (session) session.deadline=deadlineToday(selected.endTime).toISOString();
       save();
+      if (selected.id === state.activePackId) updateTime();
     });
     settingsDialog.querySelectorAll('[data-task-input]').forEach(input => input.addEventListener('input',e=>{
       const task=selected.tasks.find(t=>t.id===e.target.dataset.taskId);
